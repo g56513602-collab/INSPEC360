@@ -33,6 +33,8 @@ interface ExecutionFlowProps {
 export function ExecutionFlow({ order, user, onBack, onComplete, onPause }: ExecutionFlowProps) {
   const structure = getStructureById(order.structureId);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [photos, setPhotos] = useState<string[]>(order.photos || []);
   const [techniciansNotes, setTechniciansNotes] = useState('');
   const [showPauseModal, setShowPauseModal] = useState(false);
