@@ -28,8 +28,14 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Servir arquivos estáticos
+// Servir arquivos estáticos do public
 app.use(express.static(path.join(__dirname, '../public')));
+
+// Servir frontend estático (build do Vite)
+const distPath = path.join(__dirname, '../../dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROTAS DA API
@@ -124,6 +130,19 @@ app.get('/api/diagnostics/stats', (req, res) => {
       error: error.message,
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPA FALLBACK - Redirecionar todas as rotas não-API para index.html
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, '../../dist/index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({ error: 'Frontend not built. Run: npm run build' });
   }
 });
 
