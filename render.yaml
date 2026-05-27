@@ -3,7 +3,7 @@ services:
     name: inspec360-frontend
     runtime: node
     plan: free
-    buildCommand: pnpm install && pnpm build
+    buildCommand: npm install -g pnpm && pnpm install && pnpm build
     startCommand: npm install -g serve && serve -s dist -l 3000
     envVars:
       - key: NODE_ENV
@@ -15,7 +15,7 @@ services:
     name: inspec360-backend
     runtime: node
     plan: free
-    buildCommand: cd backend && npm install --no-optional --legacy-peer-deps
+    buildCommand: cd backend && npm install
     startCommand: cd backend && npm start
     envVars:
       - key: NODE_ENV
