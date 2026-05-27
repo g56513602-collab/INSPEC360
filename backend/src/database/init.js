@@ -186,12 +186,6 @@ export async function initializeDatabase() {
     )
   `);
 
-  // Adicionar colunas de GPS se não existirem (ignorar erro se já existir)
-  runSQL('ALTER TABLE inspectionPhotos ADD COLUMN latitude REAL');
-  runSQL('ALTER TABLE inspectionPhotos ADD COLUMN longitude REAL');
-  runSQL('ALTER TABLE inspectionPhotos ADD COLUMN accuracy REAL');
-  runSQL('ALTER TABLE inspectionPhotos ADD COLUMN anomalyName TEXT');
-
   // ─────────────────────────────────────────────────────────────────────────────
   // 9. TABELA DE HISTÓRICO DE PAUSAS
   // ─────────────────────────────────────────────────────────────────────────────

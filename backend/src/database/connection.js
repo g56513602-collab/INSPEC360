@@ -8,6 +8,15 @@ const dbPath = path.join(__dirname, '../../data/inspec360.db');
 
 let db = null;
 let SQL = null;
+let saveTimer = null;
+const SAVE_INTERVAL = 5000; // Salvar a cada 5 segundos
+
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (db) saveDb(true); // true = silent
+  }, SAVE_INTERVAL);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inicialização do Banco de Dados
@@ -55,9 +64,9 @@ export function getDb() {
 // Persistência do Banco de Dados
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function saveDb() {
+export function saveDb(silent = false) {
   if (!db) {
-    console.warn('⚠️ Tentativa de salvar banco não inicializado');
+    if (!silent) console.warn('⚠️ Tentativa de salvar banco não inicializado');
     return false;
   }
   
@@ -73,7 +82,7 @@ export function saveDb() {
     
     // Escrever arquivo
     fs.writeFileSync(dbPath, buffer);
-    console.log(`💾 Banco salvo: ${dbPath} (${buffer.length} bytes)`);
+    if (!silent) console.log(`💾 Banco salvo: ${dbPath} (${buffer.length} bytes)`);
     return true;
   } catch (error) {
     console.error('❌ Erro ao salvar banco:', error.message);
@@ -103,7 +112,7 @@ export function runSQL(sql, params = []) {
   
   try {
     db.run(sql, params);
-    saveDb(); // Salvar após cada operação
+    scheduleSave(); // Agendar salvamento
     return { success: true };
   } catch (err) {
     console.error('❌ Erro SQL:', err.message);
