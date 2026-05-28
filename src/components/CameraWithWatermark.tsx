@@ -32,15 +32,39 @@ export function CameraWithWatermark({
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      setError(null);
+      
+      // Timeout de 5 segundos para getUserMedia
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout ao acessar câmera')), 5000)
+      );
+      
+      const streamPromise = navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }
       });
+      
+      const stream = await Promise.race([streamPromise, timeoutPromise]);
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(err => {
+            console.error('Erro ao iniciar reprodução:', err);
+            setError('Erro ao iniciar câmera. Tente novamente.');
+          });
+        };
         setIsCapturing(true);
       }
-    } catch (err) {
-      setError('Erro ao acessar câmera. Verifique as permissões.');
+    } catch (err: any) {
+      console.error('Erro na câmera:', err);
+      if (err.name === 'NotAllowedError') {
+        setError('Permissão de câmera negada. Verifique as configurações.');
+      } else if (err.name === 'NotFoundError') {
+        setError('Câmera não encontrada no dispositivo.');
+      } else {
+        setError(err.message || 'Erro ao acessar câmera. Verifique as permissões.');
+      }
+      setIsCapturing(false);
     }
   };
 

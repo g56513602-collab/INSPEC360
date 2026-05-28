@@ -179,8 +179,8 @@ export const INSPECTION_COMPONENTS = INITIAL_INSPECTION_COMPONENTS;
 export const INITIAL_SEVERITY_OPTIONS: SeverityOption[] = [
   { id: 'leve', label: 'Leve', color: '#16a34a', description: 'Anomalia de baixo impacto, ação corretiva programada' },
   { id: 'moderada', label: 'Moderada', color: '#AA8933', description: 'Anomalia relevante, requer atenção em breve' },
-  { id: 'critica', label: 'Crítica', color: '#ea580c', description: 'Anomalia crítica, ação prioritária necessária' },
   { id: 'grave', label: 'Grave', color: '#dc2626', description: 'Anomalia grave, ação imediata necessária' },
+  { id: 'critica', label: 'Crítica', color: '#ea580c', description: 'Anomalia crítica, ação prioritária necessária' },
 ];
 
 // Keep for backwards compat

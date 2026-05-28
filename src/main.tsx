@@ -2,6 +2,7 @@
   import { createRoot } from "react-dom/client";
   import App from "./app/App.tsx";
   import "./styles/index.css";
+  import "./styles/pwa.css";
 import { OfflineProvider } from "./context/OfflineContext.tsx";
 import { OfflineIndicator } from "./components/OfflineIndicator.tsx";
 

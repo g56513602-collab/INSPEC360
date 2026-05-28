@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { initDb, closeDb, getDbInfo } from './database/connection.js';
+import { initDb, closeDb, getDbInfo, saveDb } from './database/connection.js';
 import { initializeDatabase } from './database/init.js';
 import * as queries from './database/queries.js';
 
@@ -64,7 +64,22 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '2.2.0'
+    version: '2.2.0',
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORÇAR SALVAMENTO DO BANCO
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.post('/api/sync', (req, res) => {
+  const result = saveDb(false);
+  res.json({
+    status: result ? 'success' : 'error',
+    message: result ? 'Banco de dados sincronizado com sucesso' : 'Erro ao sincronizar',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -159,7 +174,12 @@ app.get('*', (req, res) => {
 async function startServer() {
   await initializeDatabase();
   
-  app.listen(PORT, () => {
+  // Job de salvamento periódico do banco de dados
+  const autoSaveInterval = setInterval(() => {
+    saveDb(true); // silent
+  }, 10000); // Salvar a cada 10 segundos
+  
+  const server = app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║          🚀 INSPEC360 v2.2 - Backend Iniciado              ║
@@ -168,8 +188,9 @@ async function startServer() {
 📡 Server em: http://localhost:${PORT}
 🔧 API em: http://localhost:${PORT}/api
 🏥 Health: http://localhost:${PORT}/api/health
+💾 Auto-Save: a cada 10 segundos
 📸 Imagens: http://localhost:${PORT}/images/inspections
-✅ Banco de dados: SQLite Local
+✅ Banco de dados: SQLite Local (Persistido em arquivo)
 
 Rotas disponíveis:
   - GET    /api/users
@@ -181,9 +202,15 @@ Rotas disponíveis:
   - POST   /api/inspections/:id/photos
   - GET    /api/executions
   - POST   /api/photos/upload
+  - POST   /api/sync (Sincronizar banco)
 
 Pressione Ctrl+C para parar
     `);
+  });
+  
+  // Garantir que o banco é salvo ao encerrar
+  server.on('close', () => {
+    clearInterval(autoSaveInterval);
   });
 }
 

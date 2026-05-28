@@ -4,18 +4,26 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '../../data/inspec360.db');
+
+// Usar variável de ambiente para determinar caminho do banco
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
+const dbPath = path.join(DATA_DIR, 'inspec360.db');
 
 let db = null;
 let SQL = null;
 let saveTimer = null;
-const SAVE_INTERVAL = 5000; // Salvar a cada 5 segundos
+let lastSaveTime = 0;
+const SAVE_INTERVAL = 3000; // Salvar a cada 3 segundos
+const MIN_SAVE_INTERVAL = 1000; // Mínimo entre saves
 
 function scheduleSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    if (db) saveDb(true); // true = silent
-  }, SAVE_INTERVAL);
+  const now = Date.now();
+  if (now - lastSaveTime < MIN_SAVE_INTERVAL) {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDbNow(), MIN_SAVE_INTERVAL);
+    return;
+  }
+  saveDbNow();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,19 +83,25 @@ export function saveDb(silent = false) {
     const buffer = Buffer.from(data);
     
     // Garantir que o diretório existe
-    const dir = path.dirname(dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     
     // Escrever arquivo
     fs.writeFileSync(dbPath, buffer);
-    if (!silent) console.log(`💾 Banco salvo: ${dbPath} (${buffer.length} bytes)`);
+    lastSaveTime = Date.now();
+    if (!silent) {
+      console.log(`💾 Banco salvo: ${dbPath} (${buffer.length} bytes) [${new Date().toLocaleTimeString()}]`);
+    }
     return true;
   } catch (error) {
     console.error('❌ Erro ao salvar banco:', error.message);
     return false;
   }
+}
+
+function saveDbNow() {
+  if (db) saveDb(true); // true = silent
 }
 
 export function closeDb() {

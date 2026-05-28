@@ -232,7 +232,7 @@ export interface AnomalyEntry {
   id: string;
   anomalyName: string;           // Nome da anomalia (FK → ComponentRule.anomalies[])
   severity: string;              // FK → SeverityOption.id
-  phase: AnomalyPhase;
+  phase: AnomalyPhase | AnomalyPhase[];  // Pode ser single ou múltiplas fases
   isEmenda: boolean;
   safetyRisk: string;            // FK → SeverityOption.id
   operationalRisk: string;       // FK → SeverityOption.id

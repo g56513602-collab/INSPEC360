@@ -65,7 +65,7 @@ export function InspectionFlow({ order, user, onBack, onComplete, onPause }: Ins
   const defaultAnomaly = {
     name: '',
     severity: SEVERITIES[0]?.id ?? 'leve',
-    phase: 'Geral' as AnomalyPhase,
+    phase: ['A', 'B', 'C'] as AnomalyPhase[],  // Multi-select padrão (A, B, C)
     isEmenda: false,
     safetyRisk: SEVERITIES[0]?.id ?? 'leve',
     operationalRisk: SEVERITIES[0]?.id ?? 'leve',
@@ -458,26 +458,48 @@ export function InspectionFlow({ order, user, onBack, onComplete, onPause }: Ins
                   </div>
                 </div>
 
-                {/* 3. Phase */}
+                {/* 3. Phase - Multi-select */}
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block flex items-center gap-1">
-                    <Zap className="w-3 h-3" /> Fase
+                    <Zap className="w-3 h-3" /> Fases (Selecione múltiplas)
                   </label>
                   <div className="flex gap-1.5 flex-wrap">
-                    {PHASE_OPTIONS.map((ph) => (
-                      <button
-                        key={ph.value}
-                        onClick={() => setAddingAnomaly((prev) => ({ ...prev, phase: ph.value as AnomalyPhase }))}
-                        className="text-xs px-3 py-1.5 rounded-lg border-2 transition-all"
-                        style={{
-                          borderColor: addingAnomaly.phase === ph.value ? PHASE_COLORS[ph.value] : '#e5e7eb',
-                          backgroundColor: addingAnomaly.phase === ph.value ? PHASE_COLORS[ph.value] + '20' : '#fff',
-                          color: addingAnomaly.phase === ph.value ? PHASE_COLORS[ph.value] : '#6b7280',
-                        }}
-                      >
-                        {ph.label}
-                      </button>
-                    ))}
+                    {PHASE_OPTIONS.map((ph) => {
+                      const isSelected = Array.isArray(addingAnomaly.phase) 
+                        ? addingAnomaly.phase.includes(ph.value as AnomalyPhase)
+                        : addingAnomaly.phase === ph.value;
+                      
+                      return (
+                        <button
+                          key={ph.value}
+                          onClick={() => {
+                            setAddingAnomaly((prev) => {
+                              const current = Array.isArray(prev.phase) ? prev.phase : [prev.phase as AnomalyPhase];
+                              if (current.includes(ph.value as AnomalyPhase)) {
+                                return {
+                                  ...prev,
+                                  phase: current.filter(p => p !== ph.value) as AnomalyPhase[],
+                                };
+                              } else {
+                                return {
+                                  ...prev,
+                                  phase: [...current, ph.value as AnomalyPhase] as AnomalyPhase[],
+                                };
+                              }
+                            });
+                          }}
+                          className="text-xs px-3 py-1.5 rounded-lg border-2 transition-all"
+                          style={{
+                            borderColor: isSelected ? PHASE_COLORS[ph.value] : '#e5e7eb',
+                            backgroundColor: isSelected ? PHASE_COLORS[ph.value] + '40' : '#fff',
+                            color: isSelected ? PHASE_COLORS[ph.value] : '#6b7280',
+                            fontWeight: isSelected ? 600 : 400,
+                          }}
+                        >
+                          {ph.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
