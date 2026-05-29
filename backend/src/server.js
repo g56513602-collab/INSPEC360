@@ -3,9 +3,9 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { initDb, closeDb, getDbInfo, saveDb } from './database/connection.js';
-import { initializeDatabase } from './database/init.js';
-import * as queries from './database/queries.js';
+import { initDb, closeDb, getDbInfo, saveDb } from './database/postgres-connection.js';
+import { initializeDatabase } from './database/init-postgres.js';
+import * as queries from './database/queries-postgres.js';
 
 import usersRouter from './routes/users.js';
 import structuresRouter from './routes/structures.js';
@@ -174,11 +174,6 @@ app.get('*', (req, res) => {
 async function startServer() {
   await initializeDatabase();
   
-  // Job de salvamento periódico do banco de dados
-  const autoSaveInterval = setInterval(() => {
-    saveDb(true); // silent
-  }, 10000); // Salvar a cada 10 segundos
-  
   const server = app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
@@ -188,9 +183,8 @@ async function startServer() {
 📡 Server em: http://localhost:${PORT}
 🔧 API em: http://localhost:${PORT}/api
 🏥 Health: http://localhost:${PORT}/api/health
-💾 Auto-Save: a cada 10 segundos
-📸 Imagens: http://localhost:${PORT}/images/inspections
-✅ Banco de dados: SQLite Local (Persistido em arquivo)
+� Imagens: http://localhost:${PORT}/images/inspections
+✅ Banco de dados: PostgreSQL (Cloud)
 
 Rotas disponíveis:
   - GET    /api/users
@@ -208,10 +202,7 @@ Pressione Ctrl+C para parar
     `);
   });
   
-  // Garantir que o banco é salvo ao encerrar
-  server.on('close', () => {
-    clearInterval(autoSaveInterval);
-  });
+  // PostgreSQL salva automaticamente
 }
 
 startServer().catch(err => {
