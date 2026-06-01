@@ -18,10 +18,13 @@ export function CameraWithWatermark({
 }: CameraWithWatermarkProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   const { location } = useGeolocation();
 
@@ -33,38 +36,97 @@ export function CameraWithWatermark({
   const startCamera = async () => {
     try {
       setError(null);
+      setCameraReady(false);
       
-      // Timeout de 5 segundos para getUserMedia
+      // Verificar se browser suporta getUserMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('Câmera não suportada neste navegador. Use o upload de arquivo como alternativa.');
+        setIsCapturing(false);
+        return;
+      }
+      
+      // Timeout de 8 segundos para getUserMedia (mais tempo em mobile)
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout ao acessar câmera')), 5000)
+        setTimeout(() => reject(new Error('Timeout ao acessar câmera (8s). Verifique permissões ou conexão.')), 8000)
       );
       
+      // Configuração mais compatível com mobile
       const streamPromise = navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } }
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { min: 320, ideal: 1280, max: 1920 },
+          height: { min: 240, ideal: 960, max: 1440 }
+        },
+        audio: false
       });
       
       const stream = await Promise.race([streamPromise, timeoutPromise]);
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(err => {
-            console.error('Erro ao iniciar reprodução:', err);
-            setError('Erro ao iniciar câmera. Tente novamente.');
-          });
+        
+        // Aguardar o vídeo estar pronto antes de permitir captura
+        const canPlayHandler = () => {
+          setCameraReady(true);
+          console.log('✅ Câmera pronta para capturar');
         };
-        setIsCapturing(true);
+        
+        const errorHandler = () => {
+          console.error('❌ Erro ao reproduzir vídeo');
+          setError('Erro ao iniciar câmera. Verifique as permissões e tente novamente.');
+          setIsCapturing(false);
+        };
+        
+        videoRef.current.addEventListener('canplay', canPlayHandler, { once: true });
+        videoRef.current.addEventListener('error', errorHandler, { once: true });
+        
+        // Timeout para estar pronto
+        const readyTimeout = setTimeout(() => {
+          if (!cameraReady) {
+            console.warn('⏱️ Câmera não ficou pronta no tempo esperado');
+            setError('Câmera demorando para iniciar. Pode estar sem permissão.');
+            setIsCapturing(false);
+          }
+        }, 10000);
+        
+        // Tentar iniciar reprodução
+        videoRef.current.play().catch(err => {
+          clearTimeout(readyTimeout);
+          console.error('Erro ao iniciar reprodução:', err);
+          if (err.name === 'NotAllowedError') {
+            setError('Permissão de câmera negada. Verifique em Configurações > Privacidade.');
+          } else {
+            setError('Erro ao iniciar câmera. Tente novamente.');
+          }
+          setIsCapturing(false);
+        });
+        
+        // Cleanup do timeout
+        return () => clearTimeout(readyTimeout);
       }
+      setIsCapturing(true);
     } catch (err: any) {
-      console.error('Erro na câmera:', err);
-      if (err.name === 'NotAllowedError') {
-        setError('Permissão de câmera negada. Verifique as configurações.');
-      } else if (err.name === 'NotFoundError') {
-        setError('Câmera não encontrada no dispositivo.');
+      console.error('❌ Erro na câmera:', err);
+      
+      let errorMsg = 'Erro ao acessar câmera.';
+      
+      if (err.name === 'NotAllowedError' || err.message?.includes('denied')) {
+        errorMsg = '🔒 Permissão negada. Vá em Configurações > Privacidade e permita acesso à câmera.';
+      } else if (err.name === 'NotFoundError' || err.message?.includes('not found')) {
+        errorMsg = '📷 Câmera não encontrada no dispositivo.';
+      } else if (err.name === 'NotReadableError' || err.message?.includes('in use')) {
+        errorMsg = '⚠️ Câmera está sendo usada por outro aplicativo. Feche-o e tente novamente.';
+      } else if (err.name === 'SecurityError') {
+        errorMsg = '🔐 Erro de segurança. Use HTTPS e verifique permissões.';
+      } else if (err.message?.includes('Timeout')) {
+        errorMsg = '⏱️ Câmera demorando. Verifique permissões ou conexão de rede.';
       } else {
-        setError(err.message || 'Erro ao acessar câmera. Verifique as permissões.');
+        errorMsg = err.message || 'Erro desconhecido ao acessar câmera.';
       }
+      
+      setError(errorMsg);
       setIsCapturing(false);
+      setCameraReady(false);
     }
   };
 
@@ -74,17 +136,34 @@ export function CameraWithWatermark({
   };
 
   const capturePhoto = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) {
+      setError('Câmera não está pronta. Tente novamente.');
+      return;
+    }
+
+    // Validar se vídeo está realmente pronto
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+      setError('⏳ Câmera ainda está carregando. Aguarde alguns segundos e tente novamente.');
+      return;
+    }
 
     const context = canvasRef.current.getContext('2d');
-    if (!context) return;
+    if (!context) {
+      setError('Erro ao acessar canvas. Tente novamente.');
+      return;
+    }
 
-    // Desenhar frame atual
-    context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-
-    // Adicionar watermark
-    setIsProcessing(true);
     try {
+      setIsProcessing(true);
+      
+      // Ajustar canvas para o tamanho real do vídeo
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+
+      // Desenhar frame atual
+      context.drawImage(videoRef.current, 0, 0);
+
+      // Adicionar watermark
       const blobWithWatermark = await addWatermarkToCanvas(canvasRef.current, {
         latitude: location?.latitude,
         longitude: location?.longitude,
@@ -98,12 +177,18 @@ export function CameraWithWatermark({
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
         setPreviewImage(base64);
+        setError(null);
+      };
+      reader.onerror = () => {
+        setError('Erro ao ler imagem. Tente novamente.');
       };
       reader.readAsDataURL(blobWithWatermark);
+      
       stopCamera();
       setIsCapturing(false);
-    } catch (err) {
-      setError('Erro ao processar imagem com watermark');
+    } catch (err: any) {
+      console.error('❌ Erro ao processar imagem:', err);
+      setError(`Erro ao processar imagem: ${err.message || 'desconhecido'}. Tente novamente.`);
     } finally {
       setIsProcessing(false);
     }
@@ -117,7 +202,78 @@ export function CameraWithWatermark({
 
   const retakePhoto = () => {
     setPreviewImage(null);
+    setError(null);
+    setRetryCount(0);
     startCamera();
+  };
+
+  const retryCameraAccess = () => {
+    setRetryCount(prev => prev + 1);
+    setError(null);
+    setIsCapturing(false);
+    setCameraReady(false);
+    startCamera();
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessing(true);
+      setError(null);
+
+      // Ler arquivo como image
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const img = new Image();
+        img.onload = async () => {
+          try {
+            // Desenhar no canvas e aplicar watermark
+            if (canvasRef.current) {
+              canvasRef.current.width = img.width;
+              canvasRef.current.height = img.height;
+              const context = canvasRef.current.getContext('2d');
+              if (context) {
+                context.drawImage(img, 0, 0);
+
+                const blobWithWatermark = await addWatermarkToCanvas(canvasRef.current, {
+                  latitude: location?.latitude,
+                  longitude: location?.longitude,
+                  accuracy: location?.accuracy,
+                  componentName,
+                  anomalyName
+                });
+
+                const reader2 = new FileReader();
+                reader2.onload = (e2) => {
+                  const base64 = e2.target?.result as string;
+                  setPreviewImage(base64);
+                };
+                reader2.readAsDataURL(blobWithWatermark);
+              }
+            }
+          } catch (err: any) {
+            setError(`Erro ao processar imagem: ${err.message}`);
+          } finally {
+            setIsProcessing(false);
+          }
+        };
+        img.onerror = () => {
+          setError('Arquivo não é uma imagem válida.');
+          setIsProcessing(false);
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => {
+        setError('Erro ao ler arquivo.');
+        setIsProcessing(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setError(`Erro ao carregar arquivo: ${err.message}`);
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -136,18 +292,17 @@ export function CameraWithWatermark({
         {/* Content */}
         <div className="p-4">
           {/* Câmera ou Preview */}
-          {!previewImage && isCapturing ? (
+          {!previewImage && isCapturing && cameraReady ? (
             <>
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-80 object-cover rounded-lg bg-black"
               />
               <canvas
                 ref={canvasRef}
-                width={1280}
-                height={960}
                 className="hidden"
               />
 
@@ -180,6 +335,14 @@ export function CameraWithWatermark({
                 <p className="text-xs text-green-700">Marca d'água adicionada com sucesso!</p>
               </div>
             </>
+          ) : isCapturing && !cameraReady ? (
+            <div className="w-full h-80 bg-gray-100 rounded-lg flex flex-col items-center justify-center gap-3">
+              <Loader className="w-8 h-8 text-blue-600 animate-spin" />
+              <p className="text-sm text-gray-600">⏳ Inicializando câmera...</p>
+              {retryCount > 0 && (
+                <p className="text-xs text-gray-500">Tentativa {retryCount + 1}</p>
+              )}
+            </div>
           ) : (
             <div className="w-full h-80 bg-gray-100 rounded-lg flex items-center justify-center">
               <Loader className="w-8 h-8 text-gray-400 animate-spin" />
@@ -188,27 +351,51 @@ export function CameraWithWatermark({
 
           {/* Error */}
           {error && (
-            <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
-              <p className="text-xs text-red-700">{error}</p>
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700">{error}</p>
+              </div>
+              
+              {/* Sugestões de solução */}
+              {error.includes('Permissão') && (
+                <div className="text-xs text-red-600 bg-red-100 p-2 rounded mt-1 space-y-1">
+                  <p className="font-medium">Como permitir acesso à câmera:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    <li><strong>iPhone/iPad:</strong> Ajustes → Privacidade → Câmera</li>
+                    <li><strong>Android:</strong> Configurações → Privacidade → Câmera</li>
+                    <li><strong>Desktop:</strong> Verifique as permissões do navegador</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
         </div>
 
         {/* Footer - Actions */}
-        <div className="flex gap-2 p-4 border-t border-gray-200 bg-gray-50">
-          {!previewImage ? (
-            <>
+        <div className="border-t border-gray-200 bg-gray-50 p-4">
+          {!previewImage && isCapturing && cameraReady ? (
+            // Estado: Câmera pronta para captura
+            <div className="flex gap-2">
               <button
                 onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={capturePhoto}
-                disabled={isProcessing || !isCapturing}
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 flex items-center justify-center gap-2"
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               >
                 {isProcessing ? (
                   <>
@@ -218,27 +405,86 @@ export function CameraWithWatermark({
                 ) : (
                   <>
                     <Camera className="w-4 h-4" />
-                    Capturar
+                    Capturar Foto
                   </>
                 )}
               </button>
-            </>
-          ) : (
-            <>
+            </div>
+          ) : !previewImage && error ? (
+            // Estado: Câmera com erro
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={retryCameraAccess}
+                className="w-full px-4 py-2 text-sm rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Camera className="w-4 h-4" />
+                {retryCount > 0 ? `Tentar Novamente (Tentativa ${retryCount})` : 'Tentar Novamente'}
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                📁 Usar Imagem do Galeria
+              </button>
+              <button
+                onClick={onClose}
+                className="w-full px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : previewImage ? (
+            // Estado: Preview da imagem
+            <div className="flex gap-2">
               <button
                 onClick={retakePhoto}
-                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100"
+                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
               >
                 Recapturar
               </button>
               <button
                 onClick={confirmPhoto}
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center justify-center gap-2 transition-colors"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 Confirmar
               </button>
-            </>
+            </div>
+          ) : isCapturing && !cameraReady ? (
+            // Estado: Inicializando câmera
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-gray-400 text-white cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <Loader className="w-4 h-4 animate-spin" />
+                Aguardando...
+              </button>
+            </div>
+          ) : (
+            // Estado: Padrão
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2 text-sm rounded-lg bg-gray-600 text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                📁 Galeria
+              </button>
+            </div>
           )}
         </div>
       </div>

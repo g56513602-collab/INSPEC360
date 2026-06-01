@@ -336,3 +336,93 @@ export async function createPhoto(data) {
   
   return await getQueryOne('SELECT * FROM photos WHERE id = $1', [id]);
 }
+
+export async function getAllPhotos() {
+  return await getQuery('SELECT * FROM photos ORDER BY "createdAt" DESC');
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ANOMALIES - GETALL
+// ═════════════════════════════════════════════════════════════════════════════
+
+export async function getAllAnomalies() {
+  return await getQuery('SELECT * FROM anomalies ORDER BY "createdAt" DESC');
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXECUTIONS
+// ═════════════════════════════════════════════════════════════════════════════
+
+export async function getAllExecutions() {
+  return await getQuery('SELECT * FROM executions ORDER BY "createdAt" DESC');
+}
+
+export async function getExecutionById(id) {
+  return await getQueryOne('SELECT * FROM executions WHERE id = $1', [id]);
+}
+
+export async function createExecution(data) {
+  const id = data.id || uuidv4();
+  const now = new Date().toISOString();
+  
+  await runSQL(
+    `INSERT INTO executions 
+     (id, "orderId", "estruturaId", "estruturaNome", "supervisorId", "supervisorNome", "technicianId", 
+      "technicianName", status, "startDate", priority, description, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+    [id, data.orderId, data.estruturaId, data.estruturaNome, data.supervisorId, 
+     data.supervisorNome, data.technicianId || null, data.technicianName || '', 
+     data.status || 'pendente', data.startDate || now, data.priority || 'media', 
+     data.description || '', now, now]
+  );
+  
+  return await getExecutionById(id);
+}
+
+export async function updateExecution(id, data) {
+  const fields = [];
+  const params = [];
+  let paramIndex = 1;
+  const updatedAt = new Date().toISOString();
+  
+  if (data.status) { fields.push(`status = $${paramIndex}`); params.push(data.status); paramIndex++; }
+  if (data.endDate) { fields.push(`"endDate" = $${paramIndex}`); params.push(data.endDate); paramIndex++; }
+  if (data.observation !== undefined) { fields.push(`observation = $${paramIndex}`); params.push(data.observation); paramIndex++; }
+  
+  fields.push(`"updatedAt" = $${paramIndex}`);
+  params.push(updatedAt);
+  paramIndex++;
+  
+  params.push(id);
+  
+  await runSQL(`UPDATE executions SET ${fields.join(', ')} WHERE id = $${paramIndex}`, params);
+  return await getExecutionById(id);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PAUSE (Pausas de Inspeção)
+// ═════════════════════════════════════════════════════════════════════════════
+
+export async function createPause(data) {
+  const id = data.id || uuidv4();
+  const now = new Date().toISOString();
+  
+  await runSQL(
+    `INSERT INTO pauses (id, "inspectionId", "startTime", reason, "createdAt")
+     VALUES ($1, $2, $3, $4, $5)`,
+    [id, data.inspectionId, now, data.reason || '', now]
+  );
+  
+  return await getQueryOne('SELECT * FROM pauses WHERE id = $1', [id]);
+}
+
+export async function resumePause(pauseId) {
+  const now = new Date().toISOString();
+  
+  await runSQL(
+    'UPDATE pauses SET "endTime" = $1 WHERE id = $2',
+    [now, pauseId]
+  );
+  
+  return await getQueryOne('SELECT * FROM pauses WHERE id = $1', [pauseId]);
+}

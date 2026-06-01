@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import * as queries from '../database/queries.js';
+import * as queries from '../database/queries-postgres.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
@@ -35,7 +35,7 @@ const upload = multer({
 });
 
 // POST /api/photos/upload - Upload de foto para inspeção (com Georeferenciamento)
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado' });
@@ -85,7 +85,7 @@ router.post('/upload', upload.single('file'), (req, res) => {
 
     const filePath = `/images/inspections/${folderPath}/${fileName}`;
 
-    const photo = queries.createPhoto({
+    const photo = await queries.createPhoto({
       inspectionId,
       componentId: componentId || null,
       componentName: componentName || null,
@@ -105,20 +105,22 @@ router.post('/upload', upload.single('file'), (req, res) => {
       url: filePath
     });
   } catch (error) {
+    console.error('❌ Erro ao fazer upload de foto:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // GET /api/photos/:inspectionId - Obter fotos da inspeção
-router.get('/:inspectionId', (req, res) => {
+router.get('/:inspectionId', async (req, res) => {
   try {
-    const inspection = queries.getInspectionById(req.params.inspectionId);
+    const inspection = await queries.getInspectionById(req.params.inspectionId);
     if (!inspection) {
       return res.status(404).json({ error: 'Inspeção não encontrada' });
     }
     
     res.json(inspection.photos || []);
   } catch (error) {
+    console.error('❌ Erro ao buscar fotos:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

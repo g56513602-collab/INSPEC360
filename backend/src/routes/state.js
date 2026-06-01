@@ -1,43 +1,45 @@
 import express from 'express';
-import { runSQL, querySQL } from '../database/connection.js';
+import { runSQL, getQuery } from '../database/postgres-connection.js';
 
 const router = express.Router();
 
 // GET /api/state — load full app state
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const rows = querySQL('SELECT value FROM app_state WHERE key = ?', ['app_data']);
+    const rows = await getQuery('SELECT value FROM app_state WHERE key = $1', ['app_data']);
     if (rows.length > 0) {
       res.json({ state: JSON.parse(rows[0].value), found: true });
     } else {
       res.json({ state: null, found: false });
     }
   } catch (error) {
+    console.error('❌ Erro ao carregar estado:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // POST /api/state — save full app state
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const stateJson = JSON.stringify(req.body.state);
     const now = new Date().toISOString();
-    const existing = querySQL('SELECT key FROM app_state WHERE key = ?', ['app_data']);
+    const existing = await getQuery('SELECT key FROM app_state WHERE key = $1', ['app_data']);
     if (existing.length > 0) {
-      runSQL('UPDATE app_state SET value = ?, updated_at = ? WHERE key = ?', [stateJson, now, 'app_data']);
+      await runSQL('UPDATE app_state SET value = $1, updated_at = $2 WHERE key = $3', [stateJson, now, 'app_data']);
     } else {
-      runSQL('INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)', ['app_data', stateJson, now]);
+      await runSQL('INSERT INTO app_state (key, value, updated_at) VALUES ($1, $2, $3)', ['app_data', stateJson, now]);
     }
     res.json({ success: true, updated_at: now });
   } catch (error) {
+    console.error('❌ Erro ao salvar estado:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
 // GET /api/state/export — download the state as a JSON file
-router.get('/export', (req, res) => {
+router.get('/export', async (req, res) => {
   try {
-    const rows = querySQL('SELECT value, updated_at FROM app_state WHERE key = ?', ['app_data']);
+    const rows = await getQuery('SELECT value, updated_at FROM app_state WHERE key = $1', ['app_data']);
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Sem dados para exportar' });
     }
@@ -51,6 +53,7 @@ router.get('/export', (req, res) => {
       data: state,
     });
   } catch (error) {
+    console.error('❌ Erro ao exportar estado:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

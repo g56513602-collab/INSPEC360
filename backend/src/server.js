@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { initDb, closeDb, getDbInfo, saveDb } from './database/postgres-connection.js';
+import { initDb, closeDb } from './database/postgres-connection.js';
 import { initializeDatabase } from './database/init-postgres.js';
 import * as queries from './database/queries-postgres.js';
 
@@ -63,6 +63,7 @@ app.use('/api/state', stateRouter);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    database: 'postgresql',
     timestamp: new Date().toISOString(),
     version: '2.2.0',
     uptime: process.uptime(),
@@ -71,51 +72,31 @@ app.get('/api/health', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FORÇAR SALVAMENTO DO BANCO
+// DIAGNÓSTICO - Contagem de Dados
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.post('/api/sync', (req, res) => {
-  const result = saveDb(false);
-  res.json({
-    status: result ? 'success' : 'error',
-    message: result ? 'Banco de dados sincronizado com sucesso' : 'Erro ao sincronizar',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DIAGNÓSTICO - Informações do Banco de Dados
-// ─────────────────────────────────────────────────────────────────────────────
-
-app.get('/api/diagnostics/database', (req, res) => {
+app.get('/api/diagnostics/stats', async (req, res) => {
   try {
-    const dbInfo = getDbInfo();
-    
-    if (!dbInfo) {
-      return res.status(500).json({
-        error: 'Banco de dados não está pronto',
-        timestamp: new Date().toISOString()
-      });
-    }
+    const stats = {
+      usuarios: (await queries.getAllUsers()).length,
+      estruturas: (await queries.getAllStructures()).length,
+      componentes: (await queries.getAllComponents()).length,
+      ordensServico: (await queries.getAllServiceOrders()).length,
+      inspecoes: (await queries.getAllInspections()).length,
+      anomalias: (await queries.getAllAnomalies()).length,
+      fotos: (await queries.getAllPhotos()).length,
+      execucoes: (await queries.getAllExecutions()).length
+    };
     
     res.json({
       status: 'ok',
-      database: {
-        path: dbInfo.path,
-        sizeBytes: dbInfo.sizeBytes,
-        sizeMB: dbInfo.sizeMB,
-        tableCount: dbInfo.tableCount,
-        tables: dbInfo.tables,
-        lastModified: dbInfo.lastModified
-      },
-      dataLocations: {
-        banco: dbInfo.path,
-        fotos: path.join(__dirname, '../public/images/inspections'),
-        logs: path.join(__dirname, '../../data/logs')
-      },
+      database: 'postgresql',
+      stats,
+      total: Object.values(stats).reduce((a, b) => a + b, 0),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    console.error('❌ Erro ao gerar estatísticas:', error.message);
     res.status(500).json({
       error: error.message,
       timestamp: new Date().toISOString()
@@ -124,31 +105,27 @@ app.get('/api/diagnostics/database', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DIAGNÓSTICO - Contagem de Dados
+// DIAGNÓSTICO - Teste de Conectividade
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('/api/diagnostics/stats', (req, res) => {
+app.get('/api/diagnostics/connection', async (req, res) => {
   try {
-    const stats = {
-      usuarios: queries.getAllUsers().length,
-      estruturas: queries.getAllStructures().length,
-      componentes: queries.getAllComponents().length,
-      ordensServico: queries.getAllServiceOrders().length,
-      inspecoes: queries.getAllInspections().length,
-      anomalias: queries.getAllAnomalies().length,
-      fotos: queries.getAllPhotos().length,
-      execucoes: queries.getAllExecutions ? queries.getAllExecutions().length : 0
-    };
-    
+    // Testar conexão com uma query simples
+    const result = await queries.getAllUsers();
     res.json({
       status: 'ok',
-      stats,
-      total: Object.values(stats).reduce((a, b) => a + b, 0),
+      database: 'postgresql',
+      connection: 'success',
+      sample: result.length > 0 ? `${result.length} usuários no banco` : 'Banco vazio (OK)',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    console.error('❌ Erro de conexão:', error.message);
     res.status(500).json({
+      status: 'error',
       error: error.message,
+      database: 'postgresql',
+      connection: 'failed',
       timestamp: new Date().toISOString()
     });
   }
@@ -172,41 +149,60 @@ app.get('*', (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function startServer() {
-  await initializeDatabase();
-  
-  const server = app.listen(PORT, () => {
-    console.log(`
+  try {
+    console.log('🔧 Inicializando banco de dados PostgreSQL...');
+    await initializeDatabase();
+    console.log('✅ Banco de dados inicializado com sucesso!');
+    
+    const server = app.listen(PORT, () => {
+      console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║          🚀 INSPEC360 v2.2 - Backend Iniciado              ║
+║          🚀 INSPEC360 v2.2 - Backend Operacional           ║
 ╚════════════════════════════════════════════════════════════╝
 
-📡 Server em: http://localhost:${PORT}
+📡 Servidor em: http://localhost:${PORT}
 🔧 API em: http://localhost:${PORT}/api
-🏥 Health: http://localhost:${PORT}/api/health
-� Imagens: http://localhost:${PORT}/images/inspections
-✅ Banco de dados: PostgreSQL (Cloud)
+🏥 Health Check: http://localhost:${PORT}/api/health
+📊 Estatísticas: http://localhost:${PORT}/api/diagnostics/stats
+🔍 Teste Conexão: http://localhost:${PORT}/api/diagnostics/connection
+🏞️  Imagens: http://localhost:${PORT}/images/inspections
+✅ Banco: PostgreSQL (Remoto)
+🔒 CORS: ${CORS_ORIGIN}
 
-Rotas disponíveis:
-  - GET    /api/users
-  - POST   /api/users/login
-  - GET    /api/structures
-  - GET    /api/components
-  - GET    /api/service-orders
-  - GET    /api/inspections
-  - POST   /api/inspections/:id/photos
-  - GET    /api/executions
-  - POST   /api/photos/upload
-  - POST   /api/sync (Sincronizar banco)
+Rotas da API disponíveis:
+  ├─ POST   /api/users              → Criar usuário
+  ├─ POST   /api/users/login        → Login
+  ├─ GET    /api/users              → Listar usuários
+  ├─ GET    /api/structures         → Listar estruturas
+  ├─ POST   /api/structures         → Criar estrutura
+  ├─ GET    /api/components         → Listar componentes
+  ├─ GET    /api/service-orders     → Listar ordens
+  ├─ POST   /api/service-orders     → Criar ordem
+  ├─ GET    /api/inspections        → Listar inspeções
+  ├─ POST   /api/inspections        → Criar inspeção
+  ├─ POST   /api/photos/upload      → Upload de foto
+  ├─ GET    /api/executions         → Listar execuções
+  └─ POST   /api/executions         → Criar execução
 
 Pressione Ctrl+C para parar
-    `);
-  });
-  
-  // PostgreSQL salva automaticamente
+
+Variáveis de ambiente:
+  - PORT: ${PORT}
+  - CORS_ORIGIN: ${CORS_ORIGIN}
+  - DATABASE_URL: ${process.env.DATABASE_URL ? '✅ Configurada' : '❌ NÃO CONFIGURADA'}
+      `);
+    });
+    
+    return server;
+  } catch (error) {
+    console.error('❌ ERRO ao iniciar servidor:', error.message);
+    console.error('📝 Stack:', error.stack);
+    process.exit(1);
+  }
 }
 
 startServer().catch(err => {
-  console.error('❌ Erro ao iniciar servidor:', err);
+  console.error('❌ Erro fatal ao iniciar servidor:', err);
   process.exit(1);
 });
 
