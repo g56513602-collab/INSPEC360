@@ -37,6 +37,7 @@ export function CameraWithWatermark({
     try {
       setError(null);
       setCameraReady(false);
+      setIsCapturing(true);
       
       // Verificar se browser suporta getUserMedia
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -65,46 +66,54 @@ export function CameraWithWatermark({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
+        let readyTimeoutId: NodeJS.Timeout | null = null;
+        
         // Aguardar o vídeo estar pronto antes de permitir captura
         const canPlayHandler = () => {
+          if (readyTimeoutId) clearTimeout(readyTimeoutId);
           setCameraReady(true);
           console.log('✅ Câmera pronta para capturar');
         };
         
         const errorHandler = () => {
           console.error('❌ Erro ao reproduzir vídeo');
+          if (readyTimeoutId) clearTimeout(readyTimeoutId);
           setError('Erro ao iniciar câmera. Verifique as permissões e tente novamente.');
           setIsCapturing(false);
+          setCameraReady(false);
         };
         
         videoRef.current.addEventListener('canplay', canPlayHandler, { once: true });
         videoRef.current.addEventListener('error', errorHandler, { once: true });
         
-        // Timeout para estar pronto
-        const readyTimeout = setTimeout(() => {
-          if (!cameraReady) {
-            console.warn('⏱️ Câmera não ficou pronta no tempo esperado');
-            setError('Câmera demorando para iniciar. Pode estar sem permissão.');
-            setIsCapturing(false);
+        // Timeout para estar pronto (máximo 10 segundos)
+        readyTimeoutId = setTimeout(() => {
+          console.warn('⏱️ Câmera não ficou pronta em 10 segundos');
+          setError('⏳ Câmera demorando para iniciar. Pode estar sem permissão ou a câmera pode estar ocupada. Tente novamente.');
+          setIsCapturing(false);
+          setCameraReady(false);
+          // Remover listeners
+          if (videoRef.current) {
+            videoRef.current.removeEventListener('canplay', canPlayHandler);
+            videoRef.current.removeEventListener('error', errorHandler);
           }
         }, 10000);
         
         // Tentar iniciar reprodução
         videoRef.current.play().catch(err => {
-          clearTimeout(readyTimeout);
+          if (readyTimeoutId) clearTimeout(readyTimeoutId);
           console.error('Erro ao iniciar reprodução:', err);
           if (err.name === 'NotAllowedError') {
-            setError('Permissão de câmera negada. Verifique em Configurações > Privacidade.');
+            setError('🔒 Permissão de câmera negada. Verifique em Configurações > Privacidade.');
+          } else if (err.name === 'NotSupportedError') {
+            setError('Tipo de mídia não suportado. Use HTTPS em alguns navegadores.');
           } else {
             setError('Erro ao iniciar câmera. Tente novamente.');
           }
           setIsCapturing(false);
+          setCameraReady(false);
         });
-        
-        // Cleanup do timeout
-        return () => clearTimeout(readyTimeout);
       }
-      setIsCapturing(true);
     } catch (err: any) {
       console.error('❌ Erro na câmera:', err);
       
@@ -335,10 +344,13 @@ export function CameraWithWatermark({
                 <p className="text-xs text-green-700">Marca d'água adicionada com sucesso!</p>
               </div>
             </>
-          ) : isCapturing && !cameraReady ? (
+          ) : !previewImage && isCapturing && !cameraReady ? (
             <div className="w-full h-80 bg-gray-100 rounded-lg flex flex-col items-center justify-center gap-3">
               <Loader className="w-8 h-8 text-blue-600 animate-spin" />
-              <p className="text-sm text-gray-600">⏳ Inicializando câmera...</p>
+              <div className="text-center">
+                <p className="text-sm text-gray-600">⏳ Inicializando câmera...</p>
+                <p className="text-xs text-gray-500 mt-1">Isso pode levar alguns segundos</p>
+              </div>
               {retryCount > 0 && (
                 <p className="text-xs text-gray-500">Tentativa {retryCount + 1}</p>
               )}
@@ -453,19 +465,26 @@ export function CameraWithWatermark({
             </div>
           ) : isCapturing && !cameraReady ? (
             // Estado: Inicializando câmera
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2">
               <button
-                onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+                onClick={retryCameraAccess}
+                className="w-full px-4 py-2 text-sm rounded-lg bg-orange-600 text-white hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
               >
-                Cancelar
+                <Camera className="w-4 h-4" />
+                {retryCount > 0 ? `Tentar Novamente (Tentativa ${retryCount})` : 'Tentar Novamente'}
               </button>
               <button
-                disabled
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-gray-400 text-white cursor-not-allowed flex items-center justify-center gap-2"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessing}
+                className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <Loader className="w-4 h-4 animate-spin" />
-                Aguardando...
+                📁 Usar Imagem da Galeria
+              </button>
+              <button
+                onClick={onClose}
+                className="w-full px-4 py-2 text-sm rounded-lg border border-red-300 text-red-700 hover:bg-red-50 transition-colors"
+              >
+                Cancelar
               </button>
             </div>
           ) : (
